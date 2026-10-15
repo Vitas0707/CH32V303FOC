@@ -1,16 +1,16 @@
 {
 	"folders": [
 		{
+			"name": ".mrs",
 			"path": "."
 		},
 		{
-			"name": "CH32V303FOC",
-			"path": "D:\\02Projects\\mounriver-studio-projects\\CH32V303FOC"
+			"name": "CH32V307VCT",
+			"path": "../../CH32V307VCT"
 		}
 	],
 	"settings": {
 		"mrs.workspace.type": "project",
-		"mrs.init.arg": "",
 		"files.associations": {
 			"*.c": "c",
 			"*.h": "cpp",

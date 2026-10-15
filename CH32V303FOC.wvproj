@@ -135,7 +135,11 @@
 							"${project}/Core",
 							"${project}/User",
 							"${project}/Peripheral/inc",
-							"${project}/hardware/OLED/inc"
+							"${project}/hardware/OLED/inc",
+							"${project}/hardware/menu/inc",
+							"${project}/hardware/MT6701/inc",
+							"${project}/hardware/FOC/inc",
+							"${project}/hardware/VOFA"
 						],
 						"include_system_paths": [],
 						"include_files": []
@@ -331,7 +335,7 @@
 		"mcutype": "CH32V30x",
 		"address": "0x08000000",
 		"target_path": "obj/CH32V303FOC.hex",
-		"clkSpeed": "High",
+		"clkSpeed": "Low",
 		"debug_interface_mode": "1-wire serial",
 		"erase": true,
 		"program": true,

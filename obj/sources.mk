@@ -32,4 +32,8 @@ Debug \
 Peripheral/src \
 Startup \
 User \
+hardware/FOC/src \
+hardware/MT6701/src \
 hardware/OLED/src \
+hardware/VOFA \
+hardware/menu/src \

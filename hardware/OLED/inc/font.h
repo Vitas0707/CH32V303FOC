@@ -28,6 +28,13 @@ typedef struct Font {
 
 extern const Font font16x16;
 
+// 菜单界面用字库 (hardware/menu)
+extern const Font select_modefont16x16; // 输出模式选择
+extern const Font set_targetfont16x16;  // 设置目标值
+extern const Font angle_modefont16x16;  // 位置模式
+extern const Font speed_modefont16x16;  // 速度模式
+extern const Font currentfont16x16;      // 电流
+
 /**
  * @brief 图片结构体
  * @note  图片数据可以使用波特律动LED取模助手生成(https://led.baud-dance.com)

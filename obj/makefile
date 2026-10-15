@@ -8,7 +8,11 @@ RM := rm -rf
 
 # All of the sources participating in the build are defined here
 -include sources.mk
+-include hardware/menu/src/subdir.mk
+-include hardware/VOFA/subdir.mk
 -include hardware/OLED/src/subdir.mk
+-include hardware/MT6701/src/subdir.mk
+-include hardware/FOC/src/subdir.mk
 -include User/subdir.mk
 -include Startup/subdir.mk
 -include Peripheral/src/subdir.mk
