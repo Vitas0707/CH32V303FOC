@@ -1,5 +1,7 @@
 # CH32V303FOC — 基于 CH32V303 的无刷电机 FOC 驱动
 
+本方案用于车队一轮招新全栈组的考核
+
 基于 WCH CH32V303CBT6（青稞 V4F RISC-V 内核，144 MHz）的磁场定向控制（FOC）无刷直流电机驱动工程，包含 OLED 显示、五向按键多级菜单、MT6701 磁编码器、双电阻相电流采样、SVPWM 互补 PWM 输出及 VOFA+ JustFloat 在线调试。
 
 ## 硬件平台
