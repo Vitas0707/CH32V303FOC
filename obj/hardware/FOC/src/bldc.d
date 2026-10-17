@@ -30,7 +30,8 @@ hardware/FOC/src/bldc.o: ../hardware/FOC/src/bldc.c \
  d:/02Projects/mounriver-studio-projects/CH32V303FOC/Peripheral/inc/ch32v30x_wwdg.h \
  d:/02Projects/mounriver-studio-projects/CH32V303FOC/User/ch32v30x_it.h \
  d:/02Projects/mounriver-studio-projects/CH32V303FOC/Debug/debug.h \
- d:/02Projects/mounriver-studio-projects/CH32V303FOC/Peripheral/inc/ch32v30x_misc.h
+ d:/02Projects/mounriver-studio-projects/CH32V303FOC/Peripheral/inc/ch32v30x_misc.h \
+ d:/02Projects/mounriver-studio-projects/CH32V303FOC/hardware/menu/inc/key.h
 
 d:/02Projects/mounriver-studio-projects/CH32V303FOC/hardware/FOC/inc/bldc.h:
 
@@ -95,3 +96,5 @@ d:/02Projects/mounriver-studio-projects/CH32V303FOC/User/ch32v30x_it.h:
 d:/02Projects/mounriver-studio-projects/CH32V303FOC/Debug/debug.h:
 
 d:/02Projects/mounriver-studio-projects/CH32V303FOC/Peripheral/inc/ch32v30x_misc.h:
+
+d:/02Projects/mounriver-studio-projects/CH32V303FOC/hardware/menu/inc/key.h:

@@ -4,7 +4,11 @@
 #include "key.h"
 #include "foc.h"  // FOC_Mode, foc_mode/target/actual_* 现在定义在foc.h/foc.c
 
+#define MODENUM 2
+
 void Menu_Init(void);
 void Menu_Run(KEY_Event evt);
+
+void menu3(void);
 
 #endif // __MENU_H__

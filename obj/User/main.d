@@ -28,6 +28,8 @@ User/main.o: ../User/main.c \
  d:/02Projects/mounriver-studio-projects/CH32V303FOC/Peripheral/inc/ch32v30x_wwdg.h \
  d:/02Projects/mounriver-studio-projects/CH32V303FOC/User/ch32v30x_it.h \
  d:/02Projects/mounriver-studio-projects/CH32V303FOC/Peripheral/inc/ch32v30x_misc.h \
+ d:/02Projects/mounriver-studio-projects/CH32V303FOC/hardware/OLED/inc/oled.h \
+ d:/02Projects/mounriver-studio-projects/CH32V303FOC/hardware/OLED/inc/font.h \
  d:/02Projects/mounriver-studio-projects/CH32V303FOC/hardware/menu/inc/menu.h \
  d:/02Projects/mounriver-studio-projects/CH32V303FOC/hardware/menu/inc/key.h \
  d:/02Projects/mounriver-studio-projects/CH32V303FOC/hardware/FOC/inc/foc.h \
@@ -91,6 +93,10 @@ d:/02Projects/mounriver-studio-projects/CH32V303FOC/Peripheral/inc/ch32v30x_wwdg
 d:/02Projects/mounriver-studio-projects/CH32V303FOC/User/ch32v30x_it.h:
 
 d:/02Projects/mounriver-studio-projects/CH32V303FOC/Peripheral/inc/ch32v30x_misc.h:
+
+d:/02Projects/mounriver-studio-projects/CH32V303FOC/hardware/OLED/inc/oled.h:
+
+d:/02Projects/mounriver-studio-projects/CH32V303FOC/hardware/OLED/inc/font.h:
 
 d:/02Projects/mounriver-studio-projects/CH32V303FOC/hardware/menu/inc/menu.h:
 

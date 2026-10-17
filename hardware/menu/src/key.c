@@ -19,6 +19,15 @@
  */
 #include "key.h"
 
+// WCH 青稞V4F内核: 所有中断函数必须用attribute声明, 否则mret不执行导致跑飞
+// WCH定制GCC只认自己的专有字符串, 不支持标准interrupt属性
+// 按键ISR优先级=3(4级嵌套最低)走硬件压栈 → 用WCH-Interrupt-fast
+#ifdef __riscv
+#define KEY_ISR __attribute__((interrupt("WCH-Interrupt-fast")))
+#else
+#define KEY_ISR
+#endif
+
 // ==================== 内部类型 ====================
 typedef enum {
     KEY_ID_UP = 0,
@@ -87,11 +96,12 @@ static void pushEvent(KEY_Event evt)
  * @param id  按键ID
  * @note  低电平有效: 下降沿=按下, 上升沿=释放
  * @note  消抖: 若距上次边沿<KEY_DEBOUNCE_MS则忽略(过滤机械抖动)
+ * @note 中断处理的逻辑，irq负责判断中断的来源然后清空标志位交给边沿处理函数处理，边沿处理函数负责更新按键状态和环形缓冲区
  */
 static void handleEdge(KEY_ID id)
 {
-    uint32_t now = s_sysMs;
-    KeyState *k = (KeyState *)&s_keys[id];
+    uint32_t now = s_sysMs;//获取当前时刻
+    KeyState *k = (KeyState *)&s_keys[id];//结构体数组的位置找对应按键--->取地址、转指针--->获取按键的状态
     const KeyPin *pin = &s_keyPins[id];
     uint8_t level = GPIO_ReadInputDataBit(pin->port, pin->pin);
     uint8_t pressed = (level == Bit_RESET);  // 低电平=按下
@@ -103,7 +113,7 @@ static void handleEdge(KEY_ID id)
 
     if (pressed && !k->pressed)
     {
-        // 下降沿: 刚按下
+        //前面没有按下，刚刚按下了--->刚按下
         k->pressed = 1;
         k->longFired = 0;
         k->pressTime = now;
@@ -114,7 +124,7 @@ static void handleEdge(KEY_ID id)
     }
     else if (!pressed && k->pressed)
     {
-        // 上升沿: 刚释放
+        //前面有按下，刚刚没按下了--->刚释放
         k->pressed = 0;
         // OK键: 若长按未触发则判定为短按
         if (id == KEY_ID_OK && !k->longFired)
@@ -123,7 +133,7 @@ static void handleEdge(KEY_ID id)
     // pressed==k->pressed: 同方向跳变, 忽略
 }
 
-void EXTI0_IRQHandler(void)       // PB0 = UP
+KEY_ISR void EXTI0_IRQHandler(void)       // PB0 = UP
 {
     if (EXTI_GetITStatus(EXTI_Line0) != RESET)
     {
@@ -132,7 +142,7 @@ void EXTI0_IRQHandler(void)       // PB0 = UP
     }
 }
 
-void EXTI1_IRQHandler(void)       // PB1 = DOWN
+KEY_ISR void EXTI1_IRQHandler(void)       // PB1 = DOWN
 {
     if (EXTI_GetITStatus(EXTI_Line1) != RESET)
     {
@@ -141,7 +151,7 @@ void EXTI1_IRQHandler(void)       // PB1 = DOWN
     }
 }
 
-void EXTI15_10_IRQHandler(void)   // PB10/PB11/PB12 共用
+KEY_ISR void EXTI15_10_IRQHandler(void)   // PB10/PB11/PB12 共用
 {
     if (EXTI_GetITStatus(EXTI_Line10) != RESET)
     {
@@ -160,12 +170,12 @@ void EXTI15_10_IRQHandler(void)   // PB10/PB11/PB12 共用
     }
 }
 
-// ==================== TIM3 1ms时基中断 ====================
+// ==================== TIM3 1ms时基中断（就是为了该死的长按逻辑） ====================
 
-void TIM3_IRQHandler(void)
+KEY_ISR void TIM3_IRQHandler(void)
 {
     uint8_t i;
-    if (TIM_GetITStatus(TIM3, TIM_IT_Update) != RESET)
+    if (TIM_GetITStatus(TIM3, TIM_IT_Update) != RESET)//确认是TIM3的时基中断
     {
         TIM_ClearITPendingBit(TIM3, TIM_IT_Update);
         s_sysMs++;
@@ -175,7 +185,7 @@ void TIM3_IRQHandler(void)
         {
             KeyState *k = (KeyState *)&s_keys[i];
             if (!k->pressed)
-                continue;
+                continue;//按键没有按下，直接退出
 
             if (!k->longFired && (s_sysMs - k->pressTime) >= KEY_LONG_PRESS_MS)
             {
@@ -202,7 +212,8 @@ void TIM3_IRQHandler(void)
 KEY_Event KEY_GetEvent(void)
 {
     if (s_evtHead == s_evtTail)
-        return KEY_EVT_NONE;
+        return KEY_EVT_NONE;//环形缓冲区为空--->没有新的时间
+    //读取事件，更新缓冲区指针，返回对应事件
     KEY_Event evt = s_evtBuf[s_evtTail];
     s_evtTail = (s_evtTail + 1) % EVT_BUF_SIZE;
     return evt;
@@ -254,7 +265,7 @@ static void KEY_EXTI_Init(void)
     GPIO_EXTILineConfig(GPIO_PortSourceGPIOB, GPIO_PinSource12);
 
     EXTI_InitStruct.EXTI_Mode = EXTI_Mode_Interrupt;
-    EXTI_InitStruct.EXTI_Trigger = EXTI_Trigger_Rising_Falling;  // 双边沿
+    EXTI_InitStruct.EXTI_Trigger = EXTI_Trigger_Rising_Falling;  //双边沿，单独下降沿会导致长按后松手永远没有办法停止
     EXTI_InitStruct.EXTI_LineCmd = ENABLE;
 
     // EXTI0 (PB0=UP) 和 EXTI1 (PB1=DOWN)
@@ -296,8 +307,7 @@ void KEY_Init(void)
     RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOB, ENABLE);
 
     // GPIO: 内部上拉输入 (外部已有10K上拉, 内部上拉增强抗扰)
-    GPIO_InitStruct.GPIO_Pin = KEY_UP_PIN | KEY_DOWN_PIN | KEY_LEFT_PIN |
-                               KEY_RIGHT_PIN | KEY_OK_PIN;
+    GPIO_InitStruct.GPIO_Pin = KEY_UP_PIN | KEY_DOWN_PIN | KEY_LEFT_PIN |KEY_RIGHT_PIN | KEY_OK_PIN;
     GPIO_InitStruct.GPIO_Mode = GPIO_Mode_IPU;
     GPIO_InitStruct.GPIO_Speed = GPIO_Speed_50MHz;
     GPIO_Init(GPIOB, &GPIO_InitStruct);

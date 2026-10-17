@@ -100,6 +100,8 @@ static void fmtFloat(char *buf, float v, uint8_t dec)
 static void LoadDigits(void)
 {
     uint16_t v = (selMode == 0) ? lastPos : lastSpeed;
+    //获取十进制数字各个位的常用方法：除该位的十进制再对10取余
+    //除以该位十进制数可以获取以上的所有位数（12345/1000=12），再对10取余可以获取对应的十进制数（12%10=2）
     digits[0] = (v / 1000) % 10;
     digits[1] = (v / 100) % 10;
     digits[2] = (v / 10) % 10;
@@ -110,8 +112,7 @@ static void LoadDigits(void)
 static uint16_t ComposeDigits(void)
 {
     uint16_t v = digits[0] * 1000 + digits[1] * 100 + digits[2] * 10 + digits[3];
-    uint16_t max = (selMode == 0) ? (uint16_t)(FOC_POS_MAX * 10)
-                                  : (uint16_t)FOC_SPEED_MAX;
+    uint16_t max = (selMode == 0) ? (uint16_t)(FOC_POS_MAX * 10): (uint16_t)FOC_SPEED_MAX;
     if (v > max)
         v = max;
     return v;
@@ -138,8 +139,8 @@ static void Draw_ModeScreen(void)
     OLED_NewFrame();
     OLED_DrawFilledRectangle(0, 0, 127, 15, 0); // 标题条
     OLED_PrintString(16, 0, "输出模式选择", &select_modefont16x16, OLED_COLOR_REVERSED);
-    Draw_Item(8, 22, "位置模式", &angle_modefont16x16, selMode == 0);
-    Draw_Item(8, 44, "速度模式", &speed_modefont16x16, selMode == 1);
+    Draw_Item(32, 22, "位置模式", &angle_modefont16x16, selMode == 0);
+    Draw_Item(32, 44, "速度模式", &speed_modefont16x16, selMode == 1);
     OLED_ShowFrame();
 }
 
@@ -151,7 +152,7 @@ static void Handle_Mode(KEY_Event evt)
     case KEY_EVT_DOWN:
     case KEY_EVT_UP_R:
     case KEY_EVT_DOWN_R:
-        selMode ^= 1;
+        selMode = (selMode+1) % MODENUM;
         Draw_ModeScreen();
         break;
 
@@ -294,6 +295,8 @@ static void Draw_RunScreen(void)
 
     OLED_NewFrame();
 
+    if(foc_mode == FOC_MODE_SPEED)selMode = 1;
+    
     // 行0(反色): 目标值, 上/下可在线调整
     OLED_DrawFilledRectangle(0, 0, 127, 15, 0);
     OLED_PrintString(0, 0, "目标", &set_targetfont16x16, OLED_COLOR_REVERSED);
@@ -385,7 +388,7 @@ static void Handle_Run(KEY_Event evt)
 void Menu_Init(void)
 {
     KEY_Init();
-    Delay_Ms(50); // 等待OLED上电稳定 (MCU启动快于OLED)
+    Delay_Ms(20); // 等待OLED上电稳定 (MCU启动快于OLED)
     OLED_Init();  // 内部完成I2C1(PB6/PB7)初始化
 
     screen = SCR_MODE;
@@ -413,4 +416,10 @@ void Menu_Run(KEY_Event evt)
         Handle_Run(evt);
         break;
     }
+}
+
+
+void menu3(void)
+{
+    Draw_RunScreen();
 }

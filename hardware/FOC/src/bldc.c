@@ -18,6 +18,7 @@
  *
  * 中断: ADC1 JEOC(优先级0最高) → 读电流 → 读编码器 → FOC_Update → 写CCR
  */
+ #include<math.h>
 #include "bldc.h"
 #include "foc.h"
 #include "mt6701.h"
@@ -41,8 +42,7 @@ static void BLDC_PWM_Init(void)
     TIM_OCInitTypeDef       TIM_OCStruct;
     TIM_BDTRInitTypeDef     TIM_BDTRStruct;
 
-    RCC_APB2PeriphClockCmd(
-        RCC_APB2Periph_GPIOA | RCC_APB2Periph_GPIOB | RCC_APB2Periph_TIM1, ENABLE);
+    RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOA | RCC_APB2Periph_GPIOB | RCC_APB2Periph_TIM1, ENABLE);
 
     // PA8/9/10 = CH1/2/3 复用推挽
     GPIO_InitStruct.GPIO_Pin   = GPIO_Pin_8 | GPIO_Pin_9 | GPIO_Pin_10;
@@ -89,8 +89,7 @@ static void BLDC_PWM_Init(void)
     TIM_BDTRStruct.TIM_OSSRState        = TIM_OSSRState_Enable;
     TIM_BDTRStruct.TIM_OSSIState        = TIM_OSSIState_Enable;
     TIM_BDTRStruct.TIM_LOCKLevel        = TIM_LOCKLevel_OFF;
-    TIM_BDTRStruct.TIM_DeadTime         = (uint16_t)(
-        (uint64_t)FOC_DEADTIME_NS * SystemCoreClock / 1000000000u); // 72 @144MHz
+    TIM_BDTRStruct.TIM_DeadTime         = (uint16_t)((uint64_t)FOC_DEADTIME_NS * SystemCoreClock / 1000000000u); // 72 @144MHz
     TIM_BDTRStruct.TIM_Break            = TIM_Break_Disable;
     TIM_BDTRStruct.TIM_BreakPolarity    = TIM_BreakPolarity_High;
     TIM_BDTRStruct.TIM_AutomaticOutput = TIM_AutomaticOutput_Disable;
@@ -103,6 +102,13 @@ static void BLDC_PWM_Init(void)
 /** @brief 写三相高侧占空比(0~1)到CCR (内部做HIN/LIN取反) */
 static void BLDC_PWM_SetDuty(float da, float db, float dc)
 {
+    if(da > 1.0f)da = 1.0f;
+    if(db > 1.0f)db = 1.0f;
+    if(dc > 1.0f)dc = 1.0f;
+    if(da < 0)da = 0;
+    if(db < 0)db = 0;
+    if(dc < 0)dc = 0;
+
     // HIN接CHxN(互补), 高侧占空比=1-CCR/ARR → CCR=(1-d)×ARR
     TIM_SetCompare1(TIM1, (uint16_t)((1.0f - da) * s_arr));
     TIM_SetCompare2(TIM1, (uint16_t)((1.0f - db) * s_arr));
@@ -118,7 +124,6 @@ static void BLDC_ADC_Init(void)
 {
     GPIO_InitTypeDef   GPIO_InitStruct;
     ADC_InitTypeDef     ADC_InitStruct;
-    NVIC_InitTypeDef    NVIC_InitStruct;
 
     RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOA | RCC_APB2Periph_ADC1, ENABLE);
     RCC_ADCCLKConfig(RCC_PCLK2_Div8); // 144/8=18MHz (WCH实测可用)
@@ -151,17 +156,19 @@ static void BLDC_ADC_Init(void)
     ADC_ClearFlag(ADC1, ADC_FLAG_JEOC);
 
     ADC_Cmd(ADC1, ENABLE);
-    ADC_ResetCalibration(ADC1);
-    while (ADC_GetResetCalibrationStatus(ADC1) == SET);
-    ADC_StartCalibration(ADC1);
-    while (ADC_GetCalibrationStatus(ADC1) == SET);
 
-    // NVIC: 最高优先级, 抢占FOC控制环
-    NVIC_InitStruct.NVIC_IRQChannel              = ADC_IRQn;
-    NVIC_InitStruct.NVIC_IRQChannelPreemptionPriority = 0;
-    NVIC_InitStruct.NVIC_IRQChannelSubPriority    = 0;
-    NVIC_InitStruct.NVIC_IRQChannelCmd            = ENABLE;
-    NVIC_Init(&NVIC_InitStruct);
+    // ADC自校准
+    {
+        uint32_t to;
+        ADC_ResetCalibration(ADC1);
+        to = 100000;
+        while (ADC_GetResetCalibrationStatus(ADC1) == SET && --to);
+        ADC_StartCalibration(ADC1);
+        to = 100000;
+        while (ADC_GetCalibrationStatus(ADC1) == SET && --to);
+    }
+
+    // NVIC在BLDC_Init()最后使能, 避免初始化阶段被20kHz中断打扰
 }
 
 /**
@@ -171,21 +178,36 @@ static void BLDC_ADC_Init(void)
 static void BLDC_ADC_CalibrateOffset(void)
 {
     uint32_t sum_a = 0, sum_b = 0;
+    uint32_t timeout;
     int i;
+    int valid = 0;
 
-    // 切到软件触发模式
+    // 切到软件触发模式: 禁用外部触发, 确保软件触发能工作
+    ADC_ExternalTrigInjectedConvCmd(ADC1, DISABLE);
     ADC_ExternalTrigInjectedConvConfig(ADC1, ADC_ExternalTrigInjecConv_None);
-    ADC_ExternalTrigInjectedConvCmd(ADC1, ENABLE);
+    ADC_ClearFlag(ADC1, ADC_FLAG_JEOC);
 
     for (i = 0; i < 256; i++) {
         ADC_SoftwareStartInjectedConvCmd(ADC1, ENABLE);
-        while (ADC_GetFlagStatus(ADC1, ADC_FLAG_JEOC) == RESET);
+        // 超时保护: 防止ADC异常时死循环卡死整个系统
+        timeout = 100000;
+        while (ADC_GetFlagStatus(ADC1, ADC_FLAG_JEOC) == RESET && --timeout);
+        if (timeout == 0)
+            break;  // ADC注入转换超时, 跳出校准
         ADC_ClearFlag(ADC1, ADC_FLAG_JEOC);
         sum_a += ADC_GetInjectedConversionValue(ADC1, ADC_InjectedChannel_1);
         sum_b += ADC_GetInjectedConversionValue(ADC1, ADC_InjectedChannel_2);
+        valid++;
     }
-    s_offset_a = sum_a / 256;
-    s_offset_b = sum_b / 256;
+
+    if (valid > 0) {
+        s_offset_a = sum_a / valid;
+        s_offset_b = sum_b / valid;
+    } else {
+        // ADC完全不可用, 用默认中点值兜底
+        s_offset_a = 2048;
+        s_offset_b = 2048;
+    }
 
     // 恢复TIM1 TRGO触发
     ADC_ExternalTrigInjectedConvConfig(ADC1, ADC_ExternalTrigInjecConv_T1_TRGO);
@@ -195,12 +217,8 @@ static void BLDC_ADC_CalibrateOffset(void)
 
 // ==================== ADC中断 (FOC电流环 20kHz) ====================
 
-/**
- * @brief ADC1注入组转换完成中断
- *        TIM1下溢→TRGO→ADC注入→JEOC→本函数
- *        流程: 读电流→读编码器→FOC_Update→写CCR
- */
-void ADC1_2_IRQHandler(void)
+/* ISR主体逻辑(纯C, 可被mingw64语法检查) */
+static void ADC1_2_ISR_Body(void)
 {
     if (ADC_GetFlagStatus(ADC1, ADC_FLAG_JEOC) != RESET)
     {
@@ -234,6 +252,35 @@ void ADC1_2_IRQHandler(void)
     }
 }
 
+/**
+ * @brief ADC1注入组转换完成中断
+ *        TIM1下溢→TRGO→ADC注入→JEOC→本函数
+ *        流程: 读电流→读编码器→FOC_Update→写CCR
+ *
+ * @note 软浮点ABI(-mabi=ilp32, 不启用F扩展)下:
+ *       1. 浮点运算走libgcc软浮点库调用, 不使用f0-f31浮点寄存器
+ *       2. ISR无需手动保存/恢复浮点寄存器上下文
+ *       3. ADC ISR优先级=0走软件压栈 → 用标准interrupt()属性
+ *          (此工具链不支持"WCH-Interrupt"字符串, 只支持"WCH-Interrupt-fast"
+ *           和标准interrupt(); 优先级0不在硬件压栈范围, 必须用标准属性
+ *           让gcc自己保存callee-saved通用寄存器 + 生成mret返回)
+ *       4. 性能代价: FOC_Update大量浮点运算走软浮点库, ISR耗时上升
+ *          (约30~50µs), 接近50µs周期上限, 后续可考虑重新启用硬浮点
+ */
+#ifdef __riscv
+__attribute__((interrupt()))
+void ADC1_2_IRQHandler(void)
+{
+    ADC1_2_ISR_Body();
+}
+#else
+/* 非RISC-V平台: 占位实现, 仅用于mingw64语法检查 */
+void ADC1_2_IRQHandler(void)
+{
+    ADC1_2_ISR_Body();
+}
+#endif
+
 // ==================== 对外接口 ====================
 
 void BLDC_Init(void)
@@ -250,7 +297,21 @@ void BLDC_Init(void)
 
     FOC_Init();        // 初始化算法层(PID/变量复位)
 
-    // 此后TIM1每20kHz产生TRGO→ADC注入→JEOC中断→FOC_Update
-    // foc_mode仍为IDLE → FOC_Update返回0 → MOE保持关, 电机不动
-    // 菜单设foc_mode=POSITION/SPEED后, FOC_Update返回1 → MOE自动开启
+    // 使能ADC1 JEOC中断 (优先级0最高, 软件压栈, 用标准interrupt()属性)
+    // 此后TIM1每周期(下溢)产生TRGO→ADC注入→JEOC中断→FOC_Update
+    // 放在最后使能, 避免初始化阶段被20kHz高频中断打扰
+    {
+        NVIC_InitTypeDef NVIC_InitStruct;
+        NVIC_InitStruct.NVIC_IRQChannel                   = ADC_IRQn;
+        NVIC_InitStruct.NVIC_IRQChannelPreemptionPriority = 0;
+        NVIC_InitStruct.NVIC_IRQChannelSubPriority        = 0;
+        NVIC_InitStruct.NVIC_IRQChannelCmd                = ENABLE;
+        NVIC_Init(&NVIC_InitStruct);
+    }
+
+    // foc_mode=IDLE → FOC_Update返回0 → MOE保持关, 电机不动
+    // 菜单设foc_mode=OPENLOOP/POSITION/SPEED后, FOC_Update返回1 → MOE自动开启
+    //   OPENLOOP : FOC_Update内开环分支(ol_angle积分 + 固定电压SVPWM)
+    //   POSITION : 位置环→速度环→电流环 闭环
+    //   SPEED    : 速度环→电流环 闭环
 }

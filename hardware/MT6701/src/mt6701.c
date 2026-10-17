@@ -43,7 +43,6 @@ static void MT6701_SPI_Init(void)
     GPIO_SetBits(MT6701_CS_PORT, MT6701_CS_PIN);
 
     // PA5=SCK, PA7=MOSI 复用推挽; PA6=MISO 上拉输入
-    // (MT6701 DO为开漏输出需外部上拉? SSI参考电路中DO直连MCU, 芯片内部驱动, 配置上拉增强抗扰)
     GPIO_InitStructure.GPIO_Pin = GPIO_Pin_5 | GPIO_Pin_7;
     GPIO_InitStructure.GPIO_Mode = GPIO_Mode_AF_PP;
     GPIO_Init(GPIOA, &GPIO_InitStructure);

@@ -9,9 +9,6 @@
  *   ia,ib,θm → Clarke → Park(θe) → [位置环→速度环→]电流PI → 反Park → SVPWM → da,db,dc
  *
  * 速度环 2kHz (每10个电流环), 位置环 1kHz (每20个电流环)
- *
- * @note CH32V303 (RV32IMAC) 无FPU, 全部soft-float; sinf/cosf约1µs/次,
- *       全流程约3~5µs, 50µs周期(20kHz)内安全
  */
 #include "foc.h"
 #include <math.h>
@@ -37,7 +34,7 @@ static FOC_PID pid_iq, pid_id, pid_spd;
 static float   iq_ref, id_ref;       // 电流参考
 static float   spd_ref;              // 速度参考 (内环目标)
 static float   spd_target_ramped;    // 斜坡后的速度目标
-static float   theta_m_prev;        // 上一周期机械角 (速度微分用)
+static float   theta_m_prev;         // 上一周期机械角 (速度微分用)
 static float   spd_filt;             // 滤波后速度 RPM
 static uint16_t cycle_cnt;           // 电流环周期计数
 static float   ol_angle;             // 开环角度积分 rad
@@ -162,7 +159,7 @@ void foc_svpwm(float valpha, float vbeta, float vbus, float *da, float *db, floa
 // ==================== 工具 ====================
 
 /** @brief 角度环绕到 [0, 360) */
-static float wrap360(float deg)
+float wrap360(float deg)
 {
     while (deg < 0)    deg += 360.0f;
     while (deg >= 360) deg -= 360.0f;
@@ -204,8 +201,7 @@ void FOC_Init(void)
  * @brief FOC电流环主函数 (20kHz, bldc.c ADC JEOC中断调用)
  * @return 1=使能PWM输出, 0=关闭输出
  */
-uint8_t FOC_Update(float ia, float ib, float theta_mech,
-                   float *da, float *db, float *dc)
+uint8_t FOC_Update(float ia, float ib, float theta_mech, float *da, float *db, float *dc)
 {
     float alpha, beta;
     float sin_e, cos_e;
@@ -333,3 +329,4 @@ uint8_t FOC_Update(float ia, float ib, float theta_mech,
 
     return 1;
 }
+

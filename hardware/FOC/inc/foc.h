@@ -8,19 +8,19 @@
 //  bldc.c 的ADC中断调用 FOC_Update(), 取回占空比后写TIM1 CCR
 // ====================================================================
 
-// ==================== 可调参数 (调试时只改这里) ====================
-#define FOC_PWM_FREQ        20000.0f  // PWM开关频率 Hz
+// ==================== 可调参数  ====================
+#define FOC_PWM_FREQ        35000.0f  // PWM开关频率 Hz
 #define FOC_POLE_PAIRS      7         // 电机极对数
-#define FOC_VBUS            12.0f     // 母线电压 V (无母线采样, 固定值)
+#define FOC_VBUS            11.3f     // 母线电压 V (无母线采样, 固定值)
 #define FOC_R_SHUNT         0.01f     // 采样电阻 Ω (10mΩ)
-#define FOC_INA_GAIN        20.0f     // INA240A2 增益
+#define FOC_INA_GAIN        50.0f     // INA240A2 增益
 #define FOC_ADC_VREF        3.3f      // ADC参考电压
 #define FOC_ADC_RES         4096.0f   // 12位
-#define FOC_I_MAX           5.0f      // 过流保护阈值 A
+#define FOC_I_MAX           3.0f      // 过流保护阈值 A
 #define FOC_DEADTIME_NS     500       // 死区 ns
 
 #define FOC_POS_MAX         360.0f    // 位置上限 deg
-#define FOC_SPEED_MAX       9999.0f   // 速度上限 RPM
+#define FOC_SPEED_MAX       1000.0f   // 速度上限 RPM
 #define FOC_SPEED_RAMP      2000.0f   // 速度斜坡 RPM/s
 
 // 编码器电气零点 (deg, 标定后填; 参见FOC_Update内的手动标定注释)
@@ -39,8 +39,8 @@
 #define FOC_POS_KP   10.0f          // deg误差→RPM参考
 #define FOC_POS_MAX_OUT  3000.0f    // RPM
 
-#define FOC_OL_VOLTAGE   2.0f       // 开环电压 V
-#define FOC_OL_SPEED     2.0f       // 开环电频率 Hz
+#define FOC_OL_VOLTAGE   7.0f       // 开环电压 V
+#define FOC_OL_SPEED     10.0f       // 开环电频率 Hz
 
 // ==================== 工作模式 ====================
 typedef enum {
@@ -90,7 +90,8 @@ void FOC_Init(void);
  * @param da, db, dc 输出: 三相高侧占空比 0~1
  * @return 1=使能PWM输出, 0=关闭输出(IDLE/FAULT)
  */
-uint8_t FOC_Update(float ia, float ib, float theta_mech,
-                   float *da, float *db, float *dc);
+uint8_t FOC_Update(float ia, float ib, float theta_mech,float *da, float *db, float *dc);
+
+float wrap360(float deg);
 
 #endif // __FOC_H__

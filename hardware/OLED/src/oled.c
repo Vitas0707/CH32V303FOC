@@ -39,8 +39,65 @@ uint8_t OLED_GRAM[OLED_PAGE][OLED_COLUMN];
 
 // ========================== CH32V303 I2C1 初始化 ==========================
 
-// I2C1 超时计数(防止总线异常时程序卡死, 对FOC应用尤为重要)
-#define OLED_I2C_TIMEOUT 0x10000
+// I2C1 超时计数(单次标志等待, 144MHz下约0.7ms, 快速失败避免假死)
+#define OLED_I2C_TIMEOUT 10000
+
+/**
+ * @brief I2C总线恢复 (释放可能死锁的从机)
+ *        上电时如果从机上次通信异常拉低SDA, 主机给9个时钟脉冲即可释放
+ * @note  在GPIO方式下手动拉SCL, 不依赖I2C外设
+ */
+static void OLED_I2C_BusReset(void)
+{
+  uint8_t i;
+
+  // 临时用GPIO推挽输出SCL, 开漏输出SDA
+  GPIO_InitTypeDef GPIO_InitStructure;
+  RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOB, ENABLE);
+
+  // PB6=SCL 推挽输出, PB7=SDA 开漏输出(带上拉)
+  GPIO_InitStructure.GPIO_Pin = GPIO_Pin_6;
+  GPIO_InitStructure.GPIO_Mode = GPIO_Mode_Out_PP;
+  GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;
+  GPIO_Init(GPIOB, &GPIO_InitStructure);
+
+  GPIO_InitStructure.GPIO_Pin = GPIO_Pin_7;
+  GPIO_InitStructure.GPIO_Mode = GPIO_Mode_IN_FLOATING;
+  GPIO_Init(GPIOB, &GPIO_InitStructure);
+
+  // 先拉高SCL
+  GPIO_SetBits(GPIOB, GPIO_Pin_6);
+
+  // 检查SDA是否被拉低(总线死锁)
+  if (GPIO_ReadInputDataBit(GPIOB, GPIO_Pin_7) == Bit_RESET)
+  {
+    // 给9个时钟脉冲释放从机
+    for (i = 0; i < 9; i++)
+    {
+      GPIO_ResetBits(GPIOB, GPIO_Pin_6);
+      // 简单延时(不用Delay_Ms, 此时SysTick可能没初始化)
+      { volatile uint32_t t = 100; while (t--); }
+      GPIO_SetBits(GPIOB, GPIO_Pin_6);
+      { volatile uint32_t t = 100; while (t--); }
+      // 如果SDA释放了, 提前退出
+      if (GPIO_ReadInputDataBit(GPIOB, GPIO_Pin_7) != Bit_RESET)
+        break;
+    }
+  }
+
+  // 产生一个STOP条件(SCL高时SDA从低到高)
+  GPIO_ResetBits(GPIOB, GPIO_Pin_7);
+  // 切SDA为推挽输出拉低
+  GPIO_InitStructure.GPIO_Pin = GPIO_Pin_7;
+  GPIO_InitStructure.GPIO_Mode = GPIO_Mode_Out_PP;
+  GPIO_Init(GPIOB, &GPIO_InitStructure);
+  GPIO_ResetBits(GPIOB, GPIO_Pin_7);
+  { volatile uint32_t t = 100; while (t--); }
+  GPIO_SetBits(GPIOB, GPIO_Pin_6);
+  { volatile uint32_t t = 100; while (t--); }
+  GPIO_SetBits(GPIOB, GPIO_Pin_7);
+  { volatile uint32_t t = 100; while (t--); }
+}
 
 /**
  * @brief 初始化CH32V303的I2C1 (PB6=SCL, PB7=SDA, 默认引脚无需重映射)
@@ -55,11 +112,18 @@ void OLED_I2C_Init(void)
   RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOB, ENABLE);
   RCC_APB1PeriphClockCmd(RCC_APB1Periph_I2C1, ENABLE);
 
+  // 总线恢复(释放可能死锁的从机)
+  OLED_I2C_BusReset();
+
   // PB6=SCL, PB7=SDA 开漏复用输出
   GPIO_InitStructure.GPIO_Pin = GPIO_Pin_6 | GPIO_Pin_7;
   GPIO_InitStructure.GPIO_Mode = GPIO_Mode_AF_OD;
   GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;
   GPIO_Init(GPIOB, &GPIO_InitStructure);
+
+  // I2C外设软件复位(清除可能残留的状态)
+  I2C_SoftwareResetCmd(I2C1, ENABLE);
+  I2C_SoftwareResetCmd(I2C1, DISABLE);
 
   I2C_InitStructure.I2C_ClockSpeed = 400000;
   I2C_InitStructure.I2C_Mode = I2C_Mode_I2C;
@@ -76,54 +140,74 @@ void OLED_I2C_Init(void)
 // ========================== 底层通信函数 ==========================
 
 /**
- * @brief I2C1主机发送一帧数据到OLED (带超时保护)
+ * @brief I2C1主机发送一帧数据到OLED (分步标志检查 + 超时保护 + 错误复位)
  * @param data 要发送的数据
  * @param len 要发送的数据长度
+ * @note  不使用I2C_CheckEvent组合事件检查, 改用分步单标志检查, 更可靠
  */
 static void OLED_I2C_Write(uint8_t *data, uint16_t len)
 {
   uint32_t timeout;
 
-  // 等待总线空闲
+  // 1. 等待总线空闲
   timeout = OLED_I2C_TIMEOUT;
   while (I2C_GetFlagStatus(I2C1, I2C_FLAG_BUSY) != RESET)
   {
     if ((timeout--) == 0)
-      return;
+      goto i2c_err;
   }
 
-  // 产生起始条件
+  // 2. 产生起始条件
   I2C_GenerateSTART(I2C1, ENABLE);
   timeout = OLED_I2C_TIMEOUT;
-  while (!I2C_CheckEvent(I2C1, I2C_EVENT_MASTER_MODE_SELECT))
+  while (I2C_GetFlagStatus(I2C1, I2C_FLAG_SB) == RESET)  // 等SB标志
   {
     if ((timeout--) == 0)
-      return;
+      goto i2c_err;
   }
 
-  // 发送器件地址(写方向)
+  // 3. 发送器件地址(写方向)
   I2C_Send7bitAddress(I2C1, OLED_ADDRESS, I2C_Direction_Transmitter);
   timeout = OLED_I2C_TIMEOUT;
-  while (!I2C_CheckEvent(I2C1, I2C_EVENT_MASTER_TRANSMITTER_MODE_SELECTED))
+  while (I2C_GetFlagStatus(I2C1, I2C_FLAG_ADDR) == RESET)  // 等ADDR标志
   {
     if ((timeout--) == 0)
-      return;
+      goto i2c_err;
   }
+  // 清除ADDR: 读STAR1后读STAR2
+  (void)I2C1->STAR1;
+  (void)I2C1->STAR2;
 
-  // 逐字节发送数据
+  // 4. 逐字节发送数据 (先等TXE再写DR, 流水线高效)
   while (len--)
   {
-    I2C_SendData(I2C1, *data++);
     timeout = OLED_I2C_TIMEOUT;
-    while (!I2C_CheckEvent(I2C1, I2C_EVENT_MASTER_BYTE_TRANSMITTED))
+    while (I2C_GetFlagStatus(I2C1, I2C_FLAG_TXE) == RESET)  // 等发送缓冲区空
     {
       if ((timeout--) == 0)
-        break;
+        goto i2c_err;
     }
+    I2C_SendData(I2C1, *data++);
   }
 
-  // 产生停止条件
+  // 5. 等最后一个字节完全发送完成
+  timeout = OLED_I2C_TIMEOUT;
+  while (I2C_GetFlagStatus(I2C1, I2C_FLAG_BTF) == RESET)
+  {
+    if ((timeout--) == 0)
+      goto i2c_err;
+  }
+
+  // 6. 产生停止条件
   I2C_GenerateSTOP(I2C1, ENABLE);
+  return;
+
+i2c_err:
+  // 错误恢复: 发STOP, 软件复位I2C外设, 让后续通信有机会恢复正常
+  I2C_GenerateSTOP(I2C1, ENABLE);
+  { volatile uint32_t t = 1000; while (t--); }  // 短延时等STOP完成
+  I2C_SoftwareResetCmd(I2C1, ENABLE);
+  I2C_SoftwareResetCmd(I2C1, DISABLE);
 }
 
 /**
